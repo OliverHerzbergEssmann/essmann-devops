@@ -1,0 +1,25 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+use Essmann\DevOps\Command\Essy\DeployCommand as EssyDeployCommand;
+use Essmann\DevOps\Command\Shop\DbSyncCommand;
+use Essmann\DevOps\Command\Shop\DeployCommand as ShopDeployCommand;
+use Essmann\DevOps\Command\Shop\PluginsSyncCommand;
+use Essmann\DevOps\Command\StatusCommand;
+use Essmann\DevOps\Config\Environments;
+use Symfony\Component\Console\Application;
+
+require dirname(__DIR__) . '/vendor/autoload.php';
+
+$environments = Environments::load(dirname(__DIR__) . '/config/environments.yaml');
+
+$application = new Application('ops', '0.1.0');
+$application->addCommands([
+    new StatusCommand($environments),
+    new DbSyncCommand($environments),
+    new PluginsSyncCommand($environments),
+    new ShopDeployCommand($environments),
+    new EssyDeployCommand($environments),
+]);
+$application->run();

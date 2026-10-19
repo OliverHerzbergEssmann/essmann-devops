@@ -1,0 +1,66 @@
+# Umgebungen, die `ops` kennt. Keine Zugangsdaten: SSH läuft über die Aliasse aus ~/.ssh/config
+# (stage, prod), Datenbank-Zugänge liest jedes Skript auf dem Zielsystem aus dessen .env.local.
+#
+# Felder je Umgebung:
+#   kind        local (läuft auf dem Mac) oder ssh (läuft über `ssh <alias>`)
+#   url         Storefront bzw. Startseite, für die HTTP-Prüfung im Status
+#   root        Anwendungswurzel auf dem Zielsystem
+#   php         PHP-Aufruf auf dem Zielsystem, als der Benutzer, dem var/ gehört
+#   checkout    Git-Checkout, aus dem deployt wird (nur ssh-Umgebungen)
+#   branch      Branch, der auf dieser Umgebung läuft
+#   marker_dir  Ordner für die Marker-Dateien (letzter Deploy, letzter Sync); liegt im Home des Deploy-Benutzers
+#   ssh_direct  user@host für Sprünge von einem anderen Server aus, wo der Alias aus ~/.ssh/config nicht gilt
+shop:
+  label: ESSMANN Shop
+  repo: ~/code/essmann-shop
+  smoke:
+    listing_path: /industriewaagen/
+    product_path: /pruefgewichte/klasse-e1/
+  environments:
+    ddev:
+      kind: local
+      url: https://essmann-shop.ddev.site
+      root: ~/code/essmann-shop
+      php: ddev exec php
+      branch: main
+      marker_dir: ~/.essmann-ops/shop-ddev
+    stage:
+      kind: ssh
+      ssh: stage
+      url: http://essmann-shop.essmann.intern
+      root: /var/www/shopware
+      php: sudo -u www-data php
+      checkout: /home/herzberg/monorepo
+      branch: stage
+      marker_dir: ~/.essmann-ops/shop
+    live:
+      kind: ssh
+      ssh: prod
+      ssh_direct: hw_waegetech_essmann_ssh@s8.weblabels-server.de
+      url: https://www.essmann-shop.com
+      root: /var/www/clients/client80/web225/web
+      php: php
+      checkout: ~/essmann-shop-release
+      branch: release
+      git_ssh_command: ssh -i ~/.ssh/id_ed25519_github_live -o IdentitiesOnly=yes
+      marker_dir: ~/.essmann-ops/shop
+essy:
+  label: ESSY
+  repo: ~/code/kern-poc
+  environments:
+    dev:
+      kind: local
+      url: https://kern-poc.ddev.site
+      root: ~/code/kern-poc
+      php: ddev exec php
+      branch: main
+      marker_dir: ~/.essmann-ops/essy-dev
+    prod:
+      kind: ssh
+      ssh: stage
+      url: http://essy.essmann.intern
+      root: /var/www/kern-poc
+      php: sudo -u www-data php
+      checkout: /home/herzberg/kern-poc
+      branch: main
+      marker_dir: ~/.essmann-ops/essy

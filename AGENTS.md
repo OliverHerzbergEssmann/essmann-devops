@@ -46,7 +46,7 @@ scripts/shop/deploy-stage.sh   läuft auf Stage: git pull + submodule, rsync der
 scripts/shop/deploy-live.sh    läuft auf Live: Ablauf aus DEPLOYMENT.md mit Plugin-Tarball, Cache-Kette, Opcache-Schleife, Smoke-Test
 scripts/shop/live-db-backup.sh läuft auf dem Mac: retiniertes Live-Backup (bleibt auf Live und lokal unter var/ des Shop-Repos)
 scripts/essy/probe.sh          liest Zustand von ESSY
-scripts/essy/deploy-prod.sh    läuft auf dem Server: Dateien, composer --no-dev, Umgebungsprüfung, Sicherung, Migrationen, Assets, Cache, Web-Test
+scripts/essy/deploy-prod.sh    läuft auf dem Server: Dateien, composer --no-dev, alten Cache leeren, Umgebungsprüfung, Sicherung, Migrationen, Assets, Cache, Web-Test
 ```
 
 Die Skripte sind eigenständig lauffähige Bash-Dateien mit `set -euo pipefail`, bekommen ihre Werte als Umgebungsvariablen
@@ -77,6 +77,8 @@ kommen teils per Composer (B2B, webla_zusatzoptionen, Frosh), teils als Ordner u
 - **`database:migrate --all Essmann` findet neue Migrationen bei gleicher Plugin-Version nicht immer** (Fund 07/2026). Beide Deploy-Skripte vergleichen die ShopPlugin-Version vor und nach dem rsync und rufen bei einem Sprung `plugin:update Essmann` auf. `shop:deploy live` verweigert, wenn `composer.json` des Plugins und die Kopfzeile des CHANGELOG nicht dieselbe Version nennen.
 - **Drei Cache-Schichten auf Stage und Live:** Symfony-Cache, Redis-Pools (`cache.object`, `cache.http`, `cache.tags`) und der PHP-Opcache je FPM-Worker. Die Deploy-Skripte leeren alle drei, den Opcache mit 30 Aufrufen. Reihenfolge und Vorfälle: `essmann-shop/DEPLOYMENT.md`.
 - **`theme:compile` muss nach `cache:clear` laufen,** sonst 503 auf `all.css`. Siehe Shop-Memory und DEPLOYMENT.md.
+- **Die Löschroutine der DB-Skripte bricht beim ersten Fehler ab, auch mitten im Block:** am 27.10.2026 scheiterte `DELETE FROM periodrequestform` (die Tabelle gibt es im Live-System nicht mehr), alles danach lief nicht. ddev hatte danach Kundendaten, Bestellungen, Anfragen und den Live-SMTP, bis die Schritte von Hand nachgeholt waren. `db-pull-ddev.sh` und `db-sync-stage.sh` löschen jetzt in einer Transaktion (`START TRANSACTION … COMMIT`, scheitert eine Anweisung, bleibt nichts halb gelöscht) und kennen `essmann_quote_request*`. Wird im Live-Schema wieder eine Tabelle umbenannt oder entfernt, bricht der Sync laut ab. Seit dem 28.10.2026 laufen Captcha, Mailer, Tracking, Admin-Login und (ddev) DooFinder vor der Löschroutine, in `db-pull-ddev.sh` auch vor `messenger:consume` (das die Queue der Live-DB abarbeitet); ein Abbruch beim Löschen lässt den Live-SMTP nicht mehr stehen. Offen: zwischen Import und Mailer-Umbiegen liegen weiter die Migrationen.
+- **ESSY: der Container im Cache stammt vom letzten Deploy.** Am 28.10.2026 nahm der neue Stand `ESSY_CLERKS` aus der `.env`, und `app:environment:check --production` brach mit „Environment variable not found: ESSY_CLERKS“ ab, weil `var/cache/prod` noch den alten Container hielt (`cache:clear` stand erst weiter unten). Bis zum Abbruch waren Dateien und `.env` schon kopiert: neuer Code mit altem Container, Datenbank noch nicht migriert. `deploy-prod.sh` leert den Cache jetzt gleich nach `composer install` (`cache:clear --no-warmup`; geht das mit dem alten Container nicht, wird `var/cache/prod` als `www-data` entfernt, nur Cache). Der Abbruch zwischen Kopieren und Migrieren bleibt ein halber Stand: nach einem Fehler dort den Deploy sofort wiederholen.
 
 ## Entscheidungen
 
@@ -93,9 +95,22 @@ kommen teils per Composer (B2B, webla_zusatzoptionen, Frosh), teils als Ordner u
 - Web-Dashboard aus `ops status --json`.
 - Erstlauf von `shop:db:sync` und `shop:deploy live` über `ops` (die Sync-Skripte sind inhaltlich die alten, der Live-Deploy ist neu geschrieben und noch nie gelaufen).
 
+## Geheimnisse
+
+ESSY: Symfony Secrets Vault, zwei Umgebungen `dev` und `prod`, beide privaten Schlüssel außerhalb von Git (Entscheidung Olli,
+19./21.10.2026, siehe `kern-poc/AGENTS.md`, „Geheimnisse“). Der Server kennt nur `SYMFONY_DECRYPTION_SECRET` in seiner
+`.env.local`. `scripts/essy/deploy-prod.sh` kopiert `config/` samt Vault und schließt `*.decrypt.private.php` vom `--delete` aus.
+Symfony fragt den Vault auch, wenn die Variable in `.env` leer steht (geprüft im Code von `EnvVarProcessor`, Symfony 7.4);
+ein nicht leerer Wert in `.env.local` gewinnt dagegen immer. Shop: `.env.local` je Umgebung, kein Vault, kein Ausrollen.
+`ops`: keine Geheimnisse; sollte das nötig werden, `sops` mit `age`, Schlüssel nur auf dem Mac.
+
 ## Gedächtnis
 
 Ein Eintrag je Änderung, neueste oben: Datum, was, warum. Längere Begründungen in den Abschnitten oben, hier nur der Verweis.
 Das Forum (Bereich `gedaechtnis`, Thread „[essmann-devops] ops-Konsole: Entscheidungen und Stand“) führt den Stand sitzungsübergreifend.
 
+- **28.10.2026 (zweiter Eintrag):** `deploy-prod.sh`: neuer Schritt „Alten Cache leeren“ vor der Umgebungsprüfung (`cache:clear --no-warmup`, sonst `var/cache/prod` entfernen). Anlass: der Deploy brach mit „Environment variable not found: ESSY_CLERKS“ ab, siehe „Fallen“. Geprüft nur mit Attrappen für `console` und `sudo` in vier Fällen (cache:clear gelingt, scheitert mit und ohne Cache-Ordner, Entfernen scheitert); auf dem Server noch nicht gelaufen.
+- **28.10.2026:** `db-pull-ddev.sh` und `db-sync-stage.sh`: Schutzschritte (Mailer, Tracking, Captcha, Admin-Login, in ddev auch DooFinder) vor die Kundendaten-Löschung gezogen, in ddev auch vor `es:index` und `messenger:consume`; Schrittnummern im Stage-Skript neu (Löschen ist jetzt 13/15). Geprüft mit den echten Skripten gegen Attrappen für `ddev`, `ssh`, `rsync`, `mysql` und `sudo`: Reihenfolge stimmt, bei scheiterndem Löschen Exit 1, Schutzschritte vorher gelaufen, kein Marker.
+- **27.10.2026:** `db-pull-ddev.sh` und `db-sync-stage.sh`: veraltete Zeile `DELETE FROM periodrequestform` raus, `essmann_quote_request_rental`, `_item` und die Hauptzeile dazu, die Kundendaten-Löschung in einer Transaktion. Anlass: `ops shop:db:sync ddev` brach an der alten Zeile ab und ließ echte Kundendaten und den Live-SMTP in ddev stehen (siehe „Fallen“).
+- **21.10.2026:** ESSY-Geheimnisse in den Symfony Secrets Vault: Schlüsselpaare `dev` und `prod` erzeugt, private Schlüssel in `kern-poc/.gitignore`, `deploy-prod.sh` schützt sie vor `--delete`. Abschnitt „Geheimnisse“ hier und in der README. Die Werte setzt der User selbst.
 - **19.10.2026:** Repo angelegt, `ops` mit `status`, `shop:db:sync`, `shop:plugins:sync`, `shop:deploy stage|live`, `essy:deploy`. Die vier Skripte im Shop-Repo zu Wrappern gemacht, DEPLOYMENT.md verweist auf `ops`. Geprüft gegen echte Umgebungen: `status` (11 s für fünf Umgebungen), beide Plugin-Sync-Trockenläufe, `shop:deploy stage` und `essy:deploy` mit Freigabe des Users. Dabei gefunden und behoben: `$`-Verlust hinter `ddev exec`, `~` per SSH, rsync-Flags für www-data-Ordner auf Stage und bei ESSY (siehe „Fallen“).

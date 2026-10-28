@@ -46,8 +46,9 @@ for path in "${PATHS[@]}"; do
   [ -e "$CHECKOUT/$path" ] || fail "Im Checkout fehlt $path (Liste PATHS in diesem Skript und in kern-poc/bin/deploy.sh)."
   # -rl --checksum statt -a: keine Besitzer, Gruppen, Rechte und Zeiten setzen, einzelne Ordner im Ziel gehören www-data
   # (chgrp und utime scheitern sonst); ohne Zeiten entscheidet die Prüfsumme, was kopiert wird
+  # --exclude der privaten Vault-Schlüssel: liegen nie im Checkout; läge einer im Ziel, dürfte --delete ihn nicht entfernen
   if [ -d "$CHECKOUT/$path" ]; then
-    rsync -rl --checksum --info=stats0,flist0 --delete --exclude=/assets/ "$CHECKOUT/$path/" "$ROOT/$path/"
+    rsync -rl --checksum --info=stats0,flist0 --delete --exclude=/assets/ --exclude='/secrets/*/*.decrypt.private.php' "$CHECKOUT/$path/" "$ROOT/$path/"
   else
     rsync -rl --checksum --info=stats0,flist0 "$CHECKOUT/$path" "$ROOT/$path"
   fi
@@ -56,6 +57,16 @@ done
 step "Composer install"
 cd "$ROOT"
 composer install --no-interaction --no-dev --optimize-autoloader --no-scripts
+
+step "Alten Cache leeren (der Container vom letzten Deploy kennt die neue Konfiguration nicht)"
+# Der Container im Cache stammt vom letzten Deploy und liest die Variablen, die es damals gab. Hat der neue Stand eine Variable aus der .env genommen,
+# bricht schon die Umgebungsprüfung darunter ab ("Environment variable not found: ESSY_CLERKS", 28.10.2026), und die Seiten laufen bis dahin mit neuem
+# Code und altem Container. Nur Cache: er baut sich beim nächsten Aufruf neu auf. Erst cache:clear; geht das mit dem alten Container nicht, wird der Ordner entfernt.
+if ! console cache:clear --no-warmup; then
+  warn "cache:clear ging mit dem alten Container nicht. var/cache/prod wird entfernt (nur Cache, er baut sich neu auf)."
+  [ -d "$ROOT/var/cache/prod" ] || fail "cache:clear ist gescheitert und $ROOT/var/cache/prod gibt es nicht. Bitte von Hand prüfen."
+  sudo -u www-data rm -rf "$ROOT/var/cache/prod" || fail "$ROOT/var/cache/prod ließ sich nicht entfernen."
+fi
 
 step "Konfiguration prüfen, bevor die Datenbank berührt wird"
 console app:environment:check --production

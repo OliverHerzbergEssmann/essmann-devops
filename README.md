@@ -25,7 +25,7 @@ Keine Zugangsdaten in diesem Repo: Datenbank-Zugänge liest jedes Skript auf dem
 | `ops shop:plugins:sync stage\|ddev` | Fremd-Plugin-Ordner per rsync und `composer.json`/`composer.lock` von Live (Live ist die Composer-Wahrheit), dann `composer install` und Cache-Kette. `--dry-run` zeigt Datei- und Paket-Unterschiede |
 | `ops shop:deploy stage` | main nach stage mergen und pushen, auf Stage: Plugins inkl. EssmannFaq-Submodule, composer install, Migrationen (bei neuer Plugin-Version `plugin:update`), Cache-Kette, Opcache. Keine Tests |
 | `ops shop:deploy live` | Zeigt die Commits `origin/release..origin/stage`, prüft ShopPlugin-Version gegen CHANGELOG, fragt nach, pusht release (pre-push-Hook fragt `yes`), Live-DB-Backup, dann auf Live der Ablauf aus DEPLOYMENT.md mit Plugin-Backup, Cache-Kette, Opcache und Smoke-Test. `--skip-merge`, `--with-category-content` |
-| `ops essy:deploy` | origin/main auf den Server: Dateien kopieren, `composer install --no-dev`, Konfiguration prüfen, DB sichern, Migrationen, Assets, Cache, Web-Test auf `/login`. `--force` |
+| `ops essy:deploy` | origin/main auf den Server: Dateien kopieren, `composer install --no-dev`, alten Cache leeren, Konfiguration prüfen, DB sichern, Migrationen, Assets, Cache, Web-Test auf `/login`. `--force` |
 
 Jeder Deploy und Sync schreibt eine Marker-Datei (`~/.essmann-ops/<app>/last-deploy`, `last-sync`, `last-plugins`)
 im Home des Deploy-Benutzers auf dem jeweiligen System. `ops status` liest sie. Umgebungen, Pfade und Benutzer
@@ -38,6 +38,15 @@ stehen in `config/environments.yaml`.
 - **ESSY Produktion:** läuft auf dem Stage-Host unter `/var/www/kern-poc`, Code gehört `herzberg`, `var/` gehört `www-data`.
   Der Aufbau mit Release-Ordnern und eigenem Benutzer aus `kern-poc/bin/deploy.sh` wartet auf die Einrichtung durch die IT;
   bis dahin deployt `ops essy:deploy` in die laufende Installation.
+
+## Geheimnisse
+
+ESSY hält seine Geheimnisse (SelectLine-Passwort und -AppKey, Shop-API-Zugang, `APP_SECRET`) seit 21.10.2026 im
+**Symfony Secrets Vault** (`kern-poc/config/secrets/<env>/`, verschlüsselt committed). Der Server entschlüsselt mit der Zeile
+`SYMFONY_DECRYPTION_SECRET` in seiner `.env.local`; `ops essy:deploy` rollt die Vault-Dateien mit `config/` automatisch aus und
+lässt private Schlüssel im Ziel in Ruhe. Neuer Wert: `ddev exec bin/console secrets:set NAME --env=prod` im kern-poc, committen,
+`ops essy:deploy`. Einzelheiten: `kern-poc/AGENTS.md`, Abschnitt „Geheimnisse“. Die `.env.local` des Shops auf ddev, Stage und Live
+bleiben serverspezifisch und werden nicht ausgerollt. `ops` selbst braucht keine Geheimnisse, nur die SSH-Schlüssel.
 
 ## Regeln
 

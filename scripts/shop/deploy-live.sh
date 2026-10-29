@@ -52,7 +52,8 @@ echo "  $BACKUP"
 
 step "Unterschiede zum laufenden Stand"
 for plugin in WebLabels ShopPlugin EssmannFaq; do
-  changed=$(diff -rq -x vendor -x .git -x node_modules -x .claude -x AGENTS.md "$CHECKOUT/custom/plugins/$plugin/" "$PLUGINS/$plugin/" 2>/dev/null | wc -l | tr -d ' ')
+  # diff endet bei Unterschieden mit 1; unter pipefail wuerde das den Deploy abbrechen
+  changed=$({ diff -rq -x vendor -x .git -x node_modules -x .claude -x AGENTS.md "$CHECKOUT/custom/plugins/$plugin/" "$PLUGINS/$plugin/" 2>/dev/null || true; } | wc -l | tr -d ' ')
   echo "  $plugin: $changed Datei(en) anders"
 done
 
@@ -100,13 +101,18 @@ step "Smoke-Test"
 problems=0
 code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 30 "$URL/")
 [ "$code" = 200 ] && echo "  Startseite: 200" || { warn "Startseite antwortet mit $code"; problems=1; }
-listing=$(curl -sk --max-time 30 "$URL$SMOKE_LISTING_PATH")
-if printf '%s' "$listing" | grep -q 'essmann-spec-table'; then echo "  Listing: essmann-spec-table vorhanden"; else warn "Listing $SMOKE_LISTING_PATH ohne essmann-spec-table"; problems=1; fi
+# Kein "cmd | grep -q" unter pipefail: grep beendet sich frueh, die Pipe bricht (SIGPIPE) und meldet faelschlich "nicht gefunden".
+# Der Server ruft seine eigene URL ueber Cloudflare ab und bekommt sporadisch 522/000, deshalb mit Wiederholungen.
+fetch() { curl -sk --max-time 30 --retry 3 --retry-delay 2 --retry-all-errors "$@" || true; }
+listing=$(fetch "$URL$SMOKE_LISTING_PATH")
+if grep -q 'essmann-spec-table' <<<"$listing"; then echo "  Listing: essmann-spec-table vorhanden"; else warn "Listing $SMOKE_LISTING_PATH ohne essmann-spec-table"; problems=1; fi
 if [ -n "$SMOKE_PRODUCT_PATH" ]; then
-  blocks=$(curl -sk --max-time 30 "$URL$SMOKE_PRODUCT_PATH" | grep -o 'application/ld+json' | wc -l | tr -d ' ')
+  product=$(fetch "$URL$SMOKE_PRODUCT_PATH")
+  blocks=$(grep -o 'application/ld+json' <<<"$product" | wc -l | tr -d ' ')
   [ "$blocks" = 2 ] && echo "  Produktseite: 2 ld+json-Blöcke" || { warn "Produktseite hat $blocks ld+json-Blöcke statt 2 (Opcache? Alt-Plugin?)"; problems=1; }
 fi
-if curl -sk --max-time 30 "$URL/account/login" | grep -q 'noindex,nofollow'; then echo "  /account/login: noindex,nofollow"; else warn "/account/login ohne noindex,nofollow"; problems=1; fi
+login=$(fetch "$URL/account/login")
+if grep -q 'noindex,nofollow' <<<"$login"; then echo "  /account/login: noindex,nofollow"; else warn "/account/login ohne noindex,nofollow"; problems=1; fi
 
 if [ "$problems" = 1 ]; then
   warn "Smoke-Test mit Befunden. Rückweg: tar xzf $BACKUP -C $ROOT, dann cache:clear, Pools, Opcache."

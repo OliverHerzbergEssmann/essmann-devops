@@ -119,11 +119,42 @@ cd $STAGE_SHOPWARE
 sudo -u www-data php bin/console database:migrate core --all --quiet
 sudo -u www-data php bin/console database:migrate Essmann --all --quiet
 
+# Schutz zuerst: Captcha, Mailer, Tracking und Admin-Login laufen vor dem Loeschen, damit ein Abbruch dort
+# nie den Live-SMTP stehen laesst.
+echo "[9/15] reCAPTCHA deaktivieren..."
+CAPTCHA_JSON='{"_value":{"honeypot":{"name":"Honeypot","isActive":true},"basicCaptcha":{"name":"basicCaptcha","isActive":false},"googleReCaptchaV2":{"name":"googleReCaptchaV2","isActive":false,"config":{"siteKey":"","secretKey":"","invisible":false}},"googleReCaptchaV3":{"name":"googleReCaptchaV3","isActive":false,"config":{"siteKey":"","secretKey":"","thresholdScore":0.5}},"friendlyCaptcha":{"name":"friendlyCaptcha","isActive":false,"config":{"siteKey":"","secretKey":""}}}}'
+mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" \
+  -e "UPDATE system_config SET configuration_value = '$CAPTCHA_JSON' WHERE configuration_key = 'core.basicInformation.activeCaptchasV2';"
+
+echo "[10/15] Mailer auf lokales Mailpit umbiegen (sonst gehen Test-Mails ueber den echten Live-SMTP raus)..."
+cd $STAGE_SHOPWARE
+sudo -u www-data php bin/console system:config:set core.mailerSettings --json '{"deliveryAddress":"shop@essmann.com","emailAgent":"smtp","host":"127.0.0.1","port":1025,"username":"","password":"","encryption":null,"senderAddress":"shop@essmann.com","disableDelivery":false,"sendMailOptions":"-t -i"}' --quiet
+
+echo "[11/15] Tracking-Tools deaktivieren (Google Analytics/Ads/Tag Manager, Sendinblue-Tracking)..."
+sudo -u www-data php bin/console plugin:deactivate DIScoGA4 --quiet || true
+mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" -e "
+UPDATE system_config SET configuration_value = '{\"_value\":false}' WHERE configuration_key = 'Sendinblue.config.isAbandonedCartTrackingEnabled';
+UPDATE system_config SET configuration_value = '{\"_value\":false}' WHERE configuration_key = 'Sendinblue.config.isPageTrackingEnabled';
+"
+
+echo "[12/15] Admin-Login anlegen (admin/shopware) falls noch nicht vorhanden..."
+if ! mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" -se "SELECT 1 FROM user WHERE username = 'admin'" | grep -q 1; then
+  sudo -u www-data php bin/console user:create admin --password=shopware --admin --no-interaction --quiet
+  mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" \
+    -e "UPDATE user u JOIN locale l ON l.code = 'de-DE' SET u.locale_id = l.id WHERE u.username = 'admin';"
+fi
+
 if [ "$WITH_CUSTOMER_DATA" -eq 0 ]; then
-  echo "[9/15] Kundendaten entfernen (Anfragen, Bestellungen, Kunden, Newsletter-Abonnenten, Gast-Bewertungen, Mail-Archiv – mit --with-customer-data z.B. fuer Support-Faelle uebernehmen)..."
+  echo "[13/15] Kundendaten entfernen (Anfragen, Bestellungen, Kunden, Newsletter-Abonnenten, Gast-Bewertungen, Mail-Archiv – mit --with-customer-data z.B. fuer Support-Faelle uebernehmen)..."
+  # Alles in einer Transaktion: mysql bricht beim ersten Fehler ab, dann wird zurueckgerollt und es bleibt nichts halb geloescht
   mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" << 'SQLEOF'
+START TRANSACTION;
+
+-- Angebots- und Mietanfragen (Entity seit 07.10.2026, Kinder zuerst); periodrequestform gibt es im Live-System nicht mehr
+DELETE FROM essmann_quote_request_rental;
+DELETE FROM essmann_quote_request_item;
+DELETE FROM essmann_quote_request;
 DELETE FROM essmann_bestprice_request;
-DELETE FROM periodrequestform;
 
 DELETE FROM newsletter_recipient;
 
@@ -143,32 +174,11 @@ DELETE FROM b2b_components_pending_order;
 
 DELETE FROM `order`;
 DELETE FROM customer;
+
+COMMIT;
 SQLEOF
 else
-  echo "[9/15] Kundendaten bleiben erhalten (--with-customer-data)..."
-fi
-
-echo "[10/15] reCAPTCHA deaktivieren..."
-CAPTCHA_JSON='{"_value":{"honeypot":{"name":"Honeypot","isActive":true},"basicCaptcha":{"name":"basicCaptcha","isActive":false},"googleReCaptchaV2":{"name":"googleReCaptchaV2","isActive":false,"config":{"siteKey":"","secretKey":"","invisible":false}},"googleReCaptchaV3":{"name":"googleReCaptchaV3","isActive":false,"config":{"siteKey":"","secretKey":"","thresholdScore":0.5}},"friendlyCaptcha":{"name":"friendlyCaptcha","isActive":false,"config":{"siteKey":"","secretKey":""}}}}'
-mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" \
-  -e "UPDATE system_config SET configuration_value = '$CAPTCHA_JSON' WHERE configuration_key = 'core.basicInformation.activeCaptchasV2';"
-
-echo "[11/15] Mailer auf lokales Mailpit umbiegen (sonst gehen Test-Mails ueber den echten Live-SMTP raus)..."
-cd $STAGE_SHOPWARE
-sudo -u www-data php bin/console system:config:set core.mailerSettings --json '{"deliveryAddress":"shop@essmann.com","emailAgent":"smtp","host":"127.0.0.1","port":1025,"username":"","password":"","encryption":null,"senderAddress":"shop@essmann.com","disableDelivery":false,"sendMailOptions":"-t -i"}' --quiet
-
-echo "[12/15] Tracking-Tools deaktivieren (Google Analytics/Ads/Tag Manager, Sendinblue-Tracking)..."
-sudo -u www-data php bin/console plugin:deactivate DIScoGA4 --quiet || true
-mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" -e "
-UPDATE system_config SET configuration_value = '{\"_value\":false}' WHERE configuration_key = 'Sendinblue.config.isAbandonedCartTrackingEnabled';
-UPDATE system_config SET configuration_value = '{\"_value\":false}' WHERE configuration_key = 'Sendinblue.config.isPageTrackingEnabled';
-"
-
-echo "[13/15] Admin-Login anlegen (admin/shopware) falls noch nicht vorhanden..."
-if ! mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" -se "SELECT 1 FROM user WHERE username = 'admin'" | grep -q 1; then
-  sudo -u www-data php bin/console user:create admin --password=shopware --admin --no-interaction --quiet
-  mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" \
-    -e "UPDATE user u JOIN locale l ON l.code = 'de-DE' SET u.locale_id = l.id WHERE u.username = 'admin';"
+  echo "[13/15] Kundendaten bleiben erhalten (--with-customer-data)..."
 fi
 
 echo "[14/15] Cache leeren (inkl. Redis-backed Pools), dann Theme kompilieren..."

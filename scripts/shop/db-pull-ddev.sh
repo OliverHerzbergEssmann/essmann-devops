@@ -188,40 +188,8 @@ ddev exec bin/console database:migrate core --all --quiet
 ddev exec bin/console database:migrate Essmann --all --quiet
 ddev exec bin/console database:migrate EssmannFAQ --all --quiet
 
-echo "→ Elasticsearch-Index neu aufbauen (Live nutzt ES 7.10.2) — MUSS nach den Migrationen laufen, sonst schlagen Indexing-Jobs auf Spalten fehl, die die Essmann-Migrationen gerade erst angelegt haben..."
-ddev exec bin/console es:index
-# Indexing-Messages abarbeiten, damit die Suche sofort funktioniert
-ddev exec bin/console messenger:consume async --time-limit=30 --memory-limit=512M --quiet || true
-
-if [ "$WITH_CUSTOMER_DATA" -eq 0 ]; then
-    echo "→ Kundendaten entfernen (Anfragen, Bestellungen, Kunden, Newsletter-Abonnenten, Gast-Bewertungen, Mail-Archiv – mit --with-customer-data z.B. für Support-/Order-Debugging übernehmen)..."
-    ddev exec mysql db <<'SQL'
-DELETE FROM essmann_bestprice_request;
-DELETE FROM periodrequestform;
-
-DELETE FROM newsletter_recipient;
-
--- Gast-Bewertungen (kein customer_id) tragen ihre PII direkt in der Zeile (external_user/external_email);
--- Bewertungen mit customer_id werden weiter unten übers Kunden-Delete anonymisiert (customer_id -> NULL)
-DELETE FROM product_review WHERE customer_id IS NULL;
-
--- document.referenced_document_id ist ein Self-FK (Storno-Beleg -> Original-Rechnung); erst entkoppeln, sonst RESTRICT
-UPDATE document SET referenced_document_id = NULL;
-DELETE FROM document;
-
--- quote.customer_id ist RESTRICT (nicht CASCADE) -> muss vor customer gelöscht werden
-DELETE FROM quote;
-
--- b2b_components_pending_order.customer_id ist RESTRICT -> muss vor customer gelöscht werden
-DELETE FROM b2b_components_pending_order;
-
-DELETE FROM `order`;
-DELETE FROM customer;
-SQL
-else
-    echo "→ Kundendaten bleiben erhalten (--with-customer-data)..."
-fi
-
+# Schutz zuerst: Mailer, Tracking, Captcha und DooFinder laufen vor allem, was Mails oder Jobs anstoßen kann
+# (messenger:consume arbeitet die Queue der Live-DB ab) und vor dem Löschen, das scheitern kann.
 echo "→ EssmannFAQ-Config-Defaults setzen (der manuelle Plugin-Insert oben überspringt plugin:install, das sonst die XML-Defaults einliest – ohne das hier bleiben autoEmbed*/structuredData auf false statt true)..."
 ddev exec bin/console system:config:set EssmannFAQ.config.autoEmbedNavigationPages --json 'true' --quiet
 ddev exec bin/console system:config:set EssmannFAQ.config.autoEmbedProductPages --json 'true' --quiet
@@ -257,6 +225,48 @@ ddev exec mysql db -e "
 UPDATE system_config SET configuration_value = '{\"_value\":false}' WHERE configuration_key = 'Sendinblue.config.isAbandonedCartTrackingEnabled';
 UPDATE system_config SET configuration_value = '{\"_value\":false}' WHERE configuration_key = 'Sendinblue.config.isPageTrackingEnabled';
 "
+
+echo "→ Elasticsearch-Index neu aufbauen (Live nutzt ES 7.10.2) — MUSS nach den Migrationen laufen, sonst schlagen Indexing-Jobs auf Spalten fehl, die die Essmann-Migrationen gerade erst angelegt haben..."
+ddev exec bin/console es:index
+# Indexing-Messages abarbeiten, damit die Suche sofort funktioniert
+ddev exec bin/console messenger:consume async --time-limit=30 --memory-limit=512M --quiet || true
+
+if [ "$WITH_CUSTOMER_DATA" -eq 0 ]; then
+    echo "→ Kundendaten entfernen (Anfragen, Bestellungen, Kunden, Newsletter-Abonnenten, Gast-Bewertungen, Mail-Archiv – mit --with-customer-data z.B. für Support-/Order-Debugging übernehmen)..."
+    # Alles in einer Transaktion: mysql bricht beim ersten Fehler ab, dann wird zurückgerollt und es bleibt nichts halb gelöscht
+    ddev exec mysql db <<'SQL'
+START TRANSACTION;
+
+-- Angebots- und Mietanfragen (Entity seit 07.10.2026, Kinder zuerst); periodrequestform gibt es im Live-System nicht mehr
+DELETE FROM essmann_quote_request_rental;
+DELETE FROM essmann_quote_request_item;
+DELETE FROM essmann_quote_request;
+DELETE FROM essmann_bestprice_request;
+
+DELETE FROM newsletter_recipient;
+
+-- Gast-Bewertungen (kein customer_id) tragen ihre PII direkt in der Zeile (external_user/external_email);
+-- Bewertungen mit customer_id werden weiter unten übers Kunden-Delete anonymisiert (customer_id -> NULL)
+DELETE FROM product_review WHERE customer_id IS NULL;
+
+-- document.referenced_document_id ist ein Self-FK (Storno-Beleg -> Original-Rechnung); erst entkoppeln, sonst RESTRICT
+UPDATE document SET referenced_document_id = NULL;
+DELETE FROM document;
+
+-- quote.customer_id ist RESTRICT (nicht CASCADE) -> muss vor customer gelöscht werden
+DELETE FROM quote;
+
+-- b2b_components_pending_order.customer_id ist RESTRICT -> muss vor customer gelöscht werden
+DELETE FROM b2b_components_pending_order;
+
+DELETE FROM `order`;
+DELETE FROM customer;
+
+COMMIT;
+SQL
+else
+    echo "→ Kundendaten bleiben erhalten (--with-customer-data)..."
+fi
 
 echo "→ Cache-Pools nochmal explizit leeren (Redis-backed, überlebt normales cache:clear teils)..."
 ddev exec bin/console cache:pool:clear cache.object cache.http cache.tags --quiet 2>/dev/null || true

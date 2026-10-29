@@ -7,14 +7,14 @@
 # danach composer install und die Cache-Kette. WebLabels, ShopPlugin und EssmannFaq bleiben auf dem Git-Stand.
 #
 # Umgebung (setzt ops): ROOT, PHP, MARKER_DIR, SOURCE (user@host oder Alias von Live), SOURCE_ROOT,
-#   COMPOSER (composer | ddev composer), RSYNC_FLAGS (extra), DRY_RUN (0/1)
+#   COMPOSER_CMD (composer | ddev composer), RSYNC_FLAGS (extra), DRY_RUN (0/1)
 set -euo pipefail
 
 ROOT="${ROOT:?}"
 PHP="${PHP:?}"
 SOURCE="${SOURCE:?}"
 SOURCE_ROOT="${SOURCE_ROOT:?}"
-COMPOSER="${COMPOSER:-composer}"
+COMPOSER_CMD="${COMPOSER_CMD:-composer}"
 MARKER_DIR="${MARKER_DIR:?}"
 RSYNC_FLAGS="${RSYNC_FLAGS:-}"
 DRY_RUN="${DRY_RUN:-0}"
@@ -59,13 +59,15 @@ if [ "$DRY_RUN" = 1 ]; then
   echo; echo "Trockenlauf: nichts geändert."; exit 0
 fi
 
-if cmp -s "$TMP/composer.lock" "$ROOT/composer.lock" && cmp -s "$TMP/composer.json" "$ROOT/composer.json"; then
+# Auch installieren, wenn die Dateien schon passen, aber vendor/ älter ist als composer.lock (abgebrochener Lauf).
+if cmp -s "$TMP/composer.lock" "$ROOT/composer.lock" && cmp -s "$TMP/composer.json" "$ROOT/composer.json" \
+  && [ ! "$ROOT/composer.lock" -nt "$ROOT/vendor/composer/installed.php" ]; then
   echo "  composer.json und composer.lock sind schon auf Live-Stand."
 else
   cp "$TMP/composer.json" "$ROOT/composer.json"
   cp "$TMP/composer.lock" "$ROOT/composer.lock"
   step "Composer install"
-  $COMPOSER install --no-interaction --optimize-autoloader --no-scripts
+  $COMPOSER_CMD install --no-interaction --optimize-autoloader --no-scripts
 fi
 
 step "Plugins registrieren, Cache, Assets, Theme"

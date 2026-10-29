@@ -53,7 +53,7 @@ HELP);
             'MARKER_DIR' => $env->isLocal() ? $env->localMarkerDir() : $env->markerDir,
             'SOURCE' => $env->isLocal() ? (string) $live->ssh : (string) ($live->sshDirect ?? $live->ssh),
             'SOURCE_ROOT' => $live->root,
-            'COMPOSER' => $env->isLocal() ? 'ddev composer' : 'composer',
+            'COMPOSER_CMD' => $env->isLocal() ? 'ddev composer' : 'composer',
             'DRY_RUN' => $input->getOption('dry-run') ? '1' : '0',
         ];
         if ($target === 'stage') {

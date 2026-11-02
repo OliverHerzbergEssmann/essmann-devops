@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Essmann\DevOps\Command\Essy\DeployCommand as EssyDeployCommand;
+use Essmann\DevOps\Command\Shop\CleanupCommand;
 use Essmann\DevOps\Command\Shop\DbSyncCommand;
 use Essmann\DevOps\Command\Shop\DeployCommand as ShopDeployCommand;
 use Essmann\DevOps\Command\Shop\PluginsSyncCommand;
@@ -20,6 +21,7 @@ $application->addCommands([
     new DbSyncCommand($environments),
     new PluginsSyncCommand($environments),
     new ShopDeployCommand($environments),
+    new CleanupCommand($environments),
     new EssyDeployCommand($environments),
 ]);
 $application->run();

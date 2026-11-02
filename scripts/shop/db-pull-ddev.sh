@@ -218,7 +218,16 @@ if ! ddev exec mysql db -se "SELECT 1 FROM user WHERE username = 'admin'" | grep
 fi
 
 echo "→ Mailer auf lokales Mailpit umbiegen (sonst gehen Test-Mails über den echten Live-SMTP raus)..."
-ddev exec bin/console system:config:set core.mailerSettings --json '{"deliveryAddress":"shop@essmann.com","emailAgent":"smtp","host":"127.0.0.1","port":1025,"username":"","password":"","encryption":null,"senderAddress":"shop@essmann.com","disableDelivery":false,"sendMailOptions":"-t -i"}' --quiet
+# Shopware liest die Einzelschluessel (core.mailerSettings.host usw.); ein JSON-Objekt unter
+# core.mailerSettings legt nur einen weiteren Schluessel an und laesst den Live-SMTP samt Passwort stehen.
+# Leere Werte als "''": ddev exec setzt die Argumente zu einer Shell-Zeile zusammen, ein nacktes '' ginge verloren.
+ddev exec bin/console system:config:set core.mailerSettings.emailAgent smtp --quiet
+ddev exec bin/console system:config:set core.mailerSettings.host 127.0.0.1 --quiet
+ddev exec bin/console system:config:set core.mailerSettings.port 1025 --json --quiet
+ddev exec bin/console system:config:set core.mailerSettings.username "''" --quiet
+ddev exec bin/console system:config:set core.mailerSettings.password "''" --quiet
+ddev exec bin/console system:config:set core.mailerSettings.encryption "''" --quiet
+ddev exec bin/console system:config:set core.mailerSettings.disableDelivery false --json --quiet
 
 echo "→ Tracking-Tools deaktivieren (Google Analytics/Ads/Tag Manager)..."
 ddev exec bin/console plugin:deactivate DIScoGA4 --quiet 2>/dev/null || true

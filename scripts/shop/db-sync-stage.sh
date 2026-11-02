@@ -128,7 +128,15 @@ mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME
 
 echo "[10/15] Mailer auf lokales Mailpit umbiegen (sonst gehen Test-Mails ueber den echten Live-SMTP raus)..."
 cd $STAGE_SHOPWARE
-sudo -u www-data php bin/console system:config:set core.mailerSettings --json '{"deliveryAddress":"shop@essmann.com","emailAgent":"smtp","host":"127.0.0.1","port":1025,"username":"","password":"","encryption":null,"senderAddress":"shop@essmann.com","disableDelivery":false,"sendMailOptions":"-t -i"}' --quiet
+# Shopware liest die Einzelschluessel (core.mailerSettings.host usw.); ein JSON-Objekt unter
+# core.mailerSettings legt nur einen weiteren Schluessel an und laesst den Live-SMTP samt Passwort stehen.
+sudo -u www-data php bin/console system:config:set core.mailerSettings.emailAgent smtp --quiet
+sudo -u www-data php bin/console system:config:set core.mailerSettings.host 127.0.0.1 --quiet
+sudo -u www-data php bin/console system:config:set core.mailerSettings.port 1025 --json --quiet
+sudo -u www-data php bin/console system:config:set core.mailerSettings.username '' --quiet
+sudo -u www-data php bin/console system:config:set core.mailerSettings.password '' --quiet
+sudo -u www-data php bin/console system:config:set core.mailerSettings.encryption '' --quiet
+sudo -u www-data php bin/console system:config:set core.mailerSettings.disableDelivery false --json --quiet
 
 echo "[11/15] Tracking-Tools deaktivieren (Google Analytics/Ads/Tag Manager)..."
 sudo -u www-data php bin/console plugin:deactivate DIScoGA4 --quiet || true

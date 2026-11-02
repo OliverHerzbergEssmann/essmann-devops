@@ -4,7 +4,8 @@
 # (oder weiter per `ddev db-pull`, das darauf verweist).
 #
 # Standardmäßig ohne Kunden-/Bestell-/Anfragedaten; --with-customer-data übernimmt alles (Order-Debugging).
-# Danach gilt immer: Captcha aus, URLs umgeschrieben, admin/shopware vorhanden, kein Tracking, Mailer auf Mailpit.
+# Danach gilt immer: Captcha aus, URLs umgeschrieben, admin/shopware vorhanden, kein Tracking, Mailer auf Mailpit,
+# nur Vorkasse und Rechnung als Zahlungsarten (PayPal, Mollie, Amazon Pay sind Live-Konten und bleiben aus).
 #
 MARKER_DIR="${MARKER_DIR:-$HOME/.essmann-ops/shop-ddev}"
 SHOP_ROOT="${DDEV_APPROOT:-$(pwd)}"
@@ -219,12 +220,11 @@ fi
 echo "→ Mailer auf lokales Mailpit umbiegen (sonst gehen Test-Mails über den echten Live-SMTP raus)..."
 ddev exec bin/console system:config:set core.mailerSettings --json '{"deliveryAddress":"shop@essmann.com","emailAgent":"smtp","host":"127.0.0.1","port":1025,"username":"","password":"","encryption":null,"senderAddress":"shop@essmann.com","disableDelivery":false,"sendMailOptions":"-t -i"}' --quiet
 
-echo "→ Tracking-Tools deaktivieren (Google Analytics/Ads/Tag Manager, Sendinblue-Tracking)..."
+echo "→ Tracking-Tools deaktivieren (Google Analytics/Ads/Tag Manager)..."
 ddev exec bin/console plugin:deactivate DIScoGA4 --quiet 2>/dev/null || true
-ddev exec mysql db -e "
-UPDATE system_config SET configuration_value = '{\"_value\":false}' WHERE configuration_key = 'Sendinblue.config.isAbandonedCartTrackingEnabled';
-UPDATE system_config SET configuration_value = '{\"_value\":false}' WHERE configuration_key = 'Sendinblue.config.isPageTrackingEnabled';
-"
+
+echo "→ PayPal/Mollie/Amazon Pay deaktivieren (Live-Konten, echte Zahlungen; auf ddev gibt es nur Vorkasse und Rechnung)..."
+ddev exec mysql db -e "UPDATE payment_method SET active = 0 WHERE handler_identifier LIKE '%PayPal%' OR handler_identifier LIKE '%Mollie%' OR handler_identifier LIKE '%Amazon%';"
 
 echo "→ Elasticsearch-Index neu aufbauen (Live nutzt ES 7.10.2) — MUSS nach den Migrationen laufen, sonst schlagen Indexing-Jobs auf Spalten fehl, die die Essmann-Migrationen gerade erst angelegt haben..."
 ddev exec bin/console es:index

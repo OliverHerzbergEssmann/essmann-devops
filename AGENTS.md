@@ -36,7 +36,7 @@ src/Shell/Markers.php          Marker lesen und parsen
 src/Status/Collector.php       sammelt Probe, HTTP-Prüfung und Git-Abstände je Umgebung
 src/Command/OpsCommand.php     Basis: Runner, scriptEnv() (ROOT, PHP, BRANCH, URL, MARKER_DIR, CHECKOUT, GIT_SSH_COMMAND)
 src/Command/StatusCommand.php  ops status
-src/Command/Shop/              DbSyncCommand, PluginsSyncCommand, DeployCommand (stage und live)
+src/Command/Shop/              DbSyncCommand, PluginsSyncCommand, DeployCommand (stage und live), CleanupCommand
 src/Command/Essy/              DeployCommand
 scripts/shop/probe.sh          liest Zustand (key=value), ändert nichts
 scripts/shop/db-sync-stage.sh  läuft auf Stage; Inhalt = das frühere db-sync.sh des Shop-Repos
@@ -44,6 +44,7 @@ scripts/shop/db-pull-ddev.sh   läuft auf dem Mac; Inhalt = das frühere .ddev/c
 scripts/shop/plugins-sync.sh   läuft auf dem Ziel: rsync der Fremd-Plugins, composer.json/lock von Live, composer install, Cache-Kette
 scripts/shop/deploy-stage.sh   läuft auf Stage: git pull + submodule, rsync der drei eigenen Plugins, composer, Migrationen, Cache-Kette, Opcache
 scripts/shop/deploy-live.sh    läuft auf Live: Ablauf aus DEPLOYMENT.md mit Plugin-Tarball, Cache-Kette, Opcache-Schleife, Smoke-Test
+scripts/shop/cleanup.sh        läuft auf dem Ziel: löscht Logs (var/log), Exporte und alten Google-Feed (files/export) älter als DAYS Tage, dann import-export:delete-expired
 scripts/shop/live-db-backup.sh läuft auf dem Mac: retiniertes Live-Backup (bleibt auf Live und lokal unter var/ des Shop-Repos)
 scripts/essy/probe.sh          liest Zustand von ESSY
 scripts/essy/deploy-prod.sh    läuft auf dem Server: Dateien, composer --no-dev, alten Cache leeren, Umgebungsprüfung, Sicherung, Migrationen, Assets, Cache, Web-Test
@@ -82,6 +83,7 @@ kommen teils per Composer (B2B, webla_zusatzoptionen, Frosh), teils als Ordner u
 
 ## Entscheidungen
 
+- **02.11.2026, Olli (mehrfach gesagt):** Auf ddev und Stage gibt es immer nur Vorkasse und Rechnung. PayPal, Mollie und Amazon Pay sind Live-Konten mit echten Zahlungen und bleiben beim Testen aus. Beide DB-Skripte deaktivieren sie nach jedem Sync; nur Stage hat die Ausnahme `--with-live-payment-methods`, ddev hat keine.
 - **19.10.2026, Olli:** Eigenes Repo mit Symfony-Console-App statt Commands im ShopPlugin (der Branch `feature/dev-ops` vom 20.07.2026 im Shop-Repo hatte das; Ideen übernommen, Code nicht) und statt Makefile.
 - **19.10.2026, Olli:** Live ist die Composer-Wahrheit. `shop:plugins:sync` holt `composer.json` und `composer.lock` von Live; bei ddev landen sie im Shop-Repo und werden committed.
 - **19.10.2026, Olli:** Der Live-Deploy behält den pre-push-Hook auf `release`; der User bestätigt den Push mit `yes`. `ops` zeigt vorher die Commit-Liste `origin/release..origin/stage`.
@@ -109,6 +111,9 @@ ein nicht leerer Wert in `.env.local` gewinnt dagegen immer. Shop: `.env.local` 
 Ein Eintrag je Änderung, neueste oben: Datum, was, warum. Längere Begründungen in den Abschnitten oben, hier nur der Verweis.
 Das Forum (Bereich `gedaechtnis`, Thread „[essmann-devops] ops-Konsole: Entscheidungen und Stand“) führt den Stand sitzungsübergreifend.
 
+- **02.11.2026:** `db-pull-ddev.sh` deaktiviert jetzt PayPal, Mollie und Amazon Pay wie `db-sync-stage.sh` (ohne Ausnahme-Schalter). Anlass: der Sync am 02.11. brachte auf ddev 14 aktive Zahlungsarten mit Live-Konten zurück, gewollt sind nur Vorkasse und Rechnung. Außerdem aus beiden Skripten die toten Sendinblue-Tracking-Zeilen entfernt (Plugin seit 30.10. überall deinstalliert).
+
+- **01.11.2026:** Neuer Befehl `ops shop:cleanup ddev|stage|live` mit `scripts/shop/cleanup.sh`: löscht Logfiles, Exporte und den alten Google-Feed, die älter sind als `--days` (Vorgabe 7), plus `import-export:delete-expired`. Der Feed wird über das Namensmuster `*google*` in `files/export` erkannt (`--feed-pattern`), der aktuelle bleibt stehen, weil der Cronjob `googleMaster.xml` täglich neu schreibt. Stage und live: erst Trockenlauf, dann Rückfrage. Geprüft mit Attrappen (Trockenlauf, echter Lauf, falsche Argumente) und `--dry-run` auf ddev; auf Stage und Live noch nicht gelaufen, die Dateinamen und Besitzer dort sind ungeprüft. Der Name des alten Feeds ist nicht bekannt.
 - **28.10.2026 (zweiter Eintrag):** `deploy-prod.sh`: neuer Schritt „Alten Cache leeren“ vor der Umgebungsprüfung (`cache:clear --no-warmup`, sonst `var/cache/prod` entfernen). Anlass: der Deploy brach mit „Environment variable not found: ESSY_CLERKS“ ab, siehe „Fallen“. Geprüft nur mit Attrappen für `console` und `sudo` in vier Fällen (cache:clear gelingt, scheitert mit und ohne Cache-Ordner, Entfernen scheitert); auf dem Server noch nicht gelaufen.
 - **28.10.2026:** `db-pull-ddev.sh` und `db-sync-stage.sh`: Schutzschritte (Mailer, Tracking, Captcha, Admin-Login, in ddev auch DooFinder) vor die Kundendaten-Löschung gezogen, in ddev auch vor `es:index` und `messenger:consume`; Schrittnummern im Stage-Skript neu (Löschen ist jetzt 13/15). Geprüft mit den echten Skripten gegen Attrappen für `ddev`, `ssh`, `rsync`, `mysql` und `sudo`: Reihenfolge stimmt, bei scheiterndem Löschen Exit 1, Schutzschritte vorher gelaufen, kein Marker.
 - **27.10.2026:** `db-pull-ddev.sh` und `db-sync-stage.sh`: veraltete Zeile `DELETE FROM periodrequestform` raus, `essmann_quote_request_rental`, `_item` und die Hauptzeile dazu, die Kundendaten-Löschung in einer Transaktion. Anlass: `ops shop:db:sync ddev` brach an der alten Zeile ab und ließ echte Kundendaten und den Live-SMTP in ddev stehen (siehe „Fallen“).

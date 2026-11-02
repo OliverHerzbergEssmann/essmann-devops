@@ -21,10 +21,11 @@ Keine Zugangsdaten in diesem Repo: Datenbank-Zugänge liest jedes Skript auf dem
 | Befehl | Was passiert |
 |---|---|
 | `ops status` | Zustand aller Umgebungen: HTTP, Shopware/Symfony-Version, PHP, ShopPlugin, composer.lock, Checkout, letzter Deploy, letzter DB-Sync, letzter Plugin-Sync, Branch-Abstände. `--watch=30`, `--json`, `--app=shop` |
-| `ops shop:db:sync stage\|ddev` | Live-DB und Fremd-Plugins ins Ziel. Ohne Kundendaten, Captcha aus, URLs umgeschrieben, admin/shopware, kein Tracking, Mailer auf Mailpit. `--with-customer-data`, `--with-live-payment-methods` (nur stage) |
+| `ops shop:db:sync stage\|ddev` | Live-DB und Fremd-Plugins ins Ziel. Ohne Kundendaten, Captcha aus, URLs umgeschrieben, admin/shopware, kein Tracking, Mailer auf Mailpit, PayPal/Mollie/Amazon Pay aus (nur Vorkasse und Rechnung). `--with-customer-data`, `--with-live-payment-methods` (nur stage) |
 | `ops shop:plugins:sync stage\|ddev` | Fremd-Plugin-Ordner per rsync und `composer.json`/`composer.lock` von Live (Live ist die Composer-Wahrheit), dann `composer install` und Cache-Kette. `--dry-run` zeigt Datei- und Paket-Unterschiede |
 | `ops shop:deploy stage` | main nach stage mergen und pushen, auf Stage: Plugins inkl. EssmannFaq-Submodule, composer install, Migrationen (bei neuer Plugin-Version `plugin:update`), Cache-Kette, Opcache. Keine Tests |
 | `ops shop:deploy live` | Zeigt die Commits `origin/release..origin/stage`, prüft ShopPlugin-Version gegen CHANGELOG, fragt nach, pusht release (pre-push-Hook fragt `yes`), Live-DB-Backup, dann auf Live der Ablauf aus DEPLOYMENT.md mit Plugin-Backup, Cache-Kette, Opcache und Smoke-Test. `--skip-merge`, `--with-category-content` |
+| `ops shop:cleanup ddev\|stage\|live` | Löscht alte Logfiles (`var/log`), alte Exporte und den alten Google-Feed (`files/export`) und ruft `import-export:delete-expired` auf. Alt = älter als `--days` (Vorgabe 7). Erst Trockenlauf, auf stage und live dann Rückfrage. `--dry-run`, `--yes`, `--days`, `--feed-pattern` (Vorgabe `*google*`) |
 | `ops essy:deploy` | origin/main auf den Server: Dateien kopieren, `composer install --no-dev`, alten Cache leeren, Konfiguration prüfen, DB sichern, Migrationen, Assets, Cache, Web-Test auf `/login`. `--force` |
 
 Jeder Deploy und Sync schreibt eine Marker-Datei (`~/.essmann-ops/<app>/last-deploy`, `last-sync`, `last-plugins`)

@@ -130,12 +130,8 @@ echo "[10/15] Mailer auf lokales Mailpit umbiegen (sonst gehen Test-Mails ueber 
 cd $STAGE_SHOPWARE
 sudo -u www-data php bin/console system:config:set core.mailerSettings --json '{"deliveryAddress":"shop@essmann.com","emailAgent":"smtp","host":"127.0.0.1","port":1025,"username":"","password":"","encryption":null,"senderAddress":"shop@essmann.com","disableDelivery":false,"sendMailOptions":"-t -i"}' --quiet
 
-echo "[11/15] Tracking-Tools deaktivieren (Google Analytics/Ads/Tag Manager, Sendinblue-Tracking)..."
+echo "[11/15] Tracking-Tools deaktivieren (Google Analytics/Ads/Tag Manager)..."
 sudo -u www-data php bin/console plugin:deactivate DIScoGA4 --quiet || true
-mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" -e "
-UPDATE system_config SET configuration_value = '{\"_value\":false}' WHERE configuration_key = 'Sendinblue.config.isAbandonedCartTrackingEnabled';
-UPDATE system_config SET configuration_value = '{\"_value\":false}' WHERE configuration_key = 'Sendinblue.config.isPageTrackingEnabled';
-"
 
 echo "[12/15] Admin-Login anlegen (admin/shopware) falls noch nicht vorhanden..."
 if ! mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" -se "SELECT 1 FROM user WHERE username = 'admin'" | grep -q 1; then
@@ -200,7 +196,7 @@ CUSTOMER_DATA_NOTE="Ohne Kunden-/Bestell-/Anfragedaten."
 [ "$WITH_CUSTOMER_DATA" -eq 1 ] && CUSTOMER_DATA_NOTE="Inkl. Kunden-/Bestell-/Anfragedaten (--with-customer-data)."
 PAYMENT_METHODS_NOTE="PayPal, Mollie und Amazon Pay wurden deaktiviert."
 [ "$WITH_LIVE_PAYMENT_METHODS" -eq 1 ] && PAYMENT_METHODS_NOTE="PayPal, Mollie und Amazon Pay bleiben aktiv (--with-live-payment-methods, vermutlich ohne Sandbox)."
-echo "HINWEIS: $CUSTOMER_DATA_NOTE $PAYMENT_METHODS_NOTE Google Analytics/Ads/Tag Manager und Sendinblue-Tracking sind aus. Mailer zeigt auf Mailpit (Port 8025)."
+echo "HINWEIS: $CUSTOMER_DATA_NOTE $PAYMENT_METHODS_NOTE Google Analytics/Ads/Tag Manager sind aus. Mailer zeigt auf Mailpit (Port 8025)."
 
 mkdir -p "$MARKER_DIR"
 printf 'at=%s\nby=%s\nsource=live\ncustomer_data=%s\n' "$(date '+%Y-%m-%d %H:%M')" "$(whoami)" "$WITH_CUSTOMER_DATA" > "$MARKER_DIR/last-sync"

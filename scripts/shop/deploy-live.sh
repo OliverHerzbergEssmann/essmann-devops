@@ -65,6 +65,9 @@ rsync -a --info=stats0,flist0 --delete --delete-excluded --exclude=vendor --excl
 
 step "Plugins und Migrationen"
 console plugin:refresh --quiet
+# Erst den Container neu bauen: plugin:update kompiliert das Theme, und das lief mit dem alten Container
+# (neue Konstruktor-Argumente in services.yaml) in "Too few arguments" (Live 04.11.2026, Code war da schon kopiert).
+console cache:clear
 if [ -n "$NEW_VERSION" ] && [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
   echo "  neue ShopPlugin-Version: plugin:update Essmann"
   console plugin:update Essmann

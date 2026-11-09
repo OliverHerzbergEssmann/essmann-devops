@@ -179,13 +179,37 @@ DELETE FROM b2b_components_pending_order;
 DELETE FROM `order`;
 DELETE FROM customer;
 
+-- Preisanfragen (Fremd-Plugin Nimbits, Name/Mail/Firma/Telefon/Adresse), Kinder zuerst
+DELETE FROM nimbits_pricerequests_baskets;
+DELETE FROM nimbits_pricerequests;
+
+-- USt-ID-Pruefprotokolle: Request/Response (VIES) enthalten Firmenname und -adresse
+DELETE FROM acris_tax_vat_id_validation_log;
+DELETE FROM lenz_platform_vat_id_validation_result;
+DELETE FROM essmann_vat_id_check;
+
+-- Logs/Queues mit serialisierten Payloads und Kontext (Webhook-Nachrichten, Log-Kontext, Export-Dateien)
+DELETE FROM swag_sequence_webhook_event_log;
+DELETE FROM webhook_event_log;
+DELETE FROM log_entry;
+DELETE FROM messenger_messages;
+DELETE FROM dead_message;
+UPDATE import_export_log SET invalid_records_log_id = NULL;
+DELETE FROM import_export_log;
+DELETE FROM import_export_file;
+
+-- Kundenbezug in Rest-Tabellen (Kunden sind oben geloescht)
+DELETE FROM payment_token;
+DELETE FROM swpa_customer_login;
+UPDATE wl_search_log SET customer_id = NULL WHERE customer_id IS NOT NULL;
+
 COMMIT;
 SQLEOF
 else
   echo "[13/15] Kundendaten bleiben erhalten (--with-customer-data)..."
 fi
 
-echo "[14/15] Cache leeren (inkl. Redis-backed Pools), dann Theme kompilieren..."
+echo "[14/15] Cache leeren (inkl. Redis-backed Pools), Theme kompilieren, Opcache leeren..."
 # WICHTIG: theme:compile MUSS der letzte Schritt sein. Es legt einen Seed im
 # Redis-Cache ab, aus dem der Storefront-Request den Theme-Pfad-Hash berechnet.
 # Ein cache:clear DANACH loescht den Seed -> die Seite fordert einen nie

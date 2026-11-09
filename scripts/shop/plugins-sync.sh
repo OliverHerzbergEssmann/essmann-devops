@@ -23,6 +23,18 @@ console() { $PHP bin/console "$@"; }
 if [ -t 1 ]; then C_STEP=$'\033[1;34m'; C_OK=$'\033[1;32m'; C_END=$'\033[0m'; else C_STEP=''; C_OK=''; C_END=''; fi
 step() { printf '\n%s==> %s%s\n' "$C_STEP" "$1" "$C_END"; }
 
+# Core-Migrationen nach einem Core-Update (composer install mit neuem Core), vor Cache-Kette und Opcache-Reset.
+# Idempotent; Post-Update-Ereignisse nur, wenn Migrationen liefen. Begründung: deploy-live.sh, migrate_core.
+migrate_core() {
+  local out
+  out=$(console database:migrate core --all 2>&1) || { printf '%s\n' "$out" >&2; printf '\nFEHLER: Core-Migrationen fehlgeschlagen.\n' >&2; exit 1; }
+  echo "  core: $(grep -Eo 'Migrated +[0-9]+ out of [0-9]+' <<<"$out" | tr -s ' ' | head -1 || true)"
+  if grep -Eq 'Migrated +[1-9][0-9]* out of' <<<"$out"; then
+    echo "  Core-Migrationen gelaufen: Post-Update-Ereignisse nachholen"
+    console system:update:finish --skip-migrations --skip-asset-build
+  fi
+}
+
 cd "$ROOT"
 DRY=''
 [ "$DRY_RUN" = 1 ] && DRY='--dry-run'
@@ -75,9 +87,10 @@ case "$COMPOSER_CMD" in ddev\ *) ddev mutagen sync ;; esac
 step "Composer install"
 $COMPOSER_CMD install --no-interaction --optimize-autoloader --no-scripts
 
-step "Plugins registrieren, Cache, Assets, Theme"
+step "Plugins registrieren, Core-Migrationen, Cache, Assets, Theme"
 console plugin:refresh --quiet
 console cache:clear
+migrate_core
 console assets:install
 console theme:compile --active-only
 console cache:clear

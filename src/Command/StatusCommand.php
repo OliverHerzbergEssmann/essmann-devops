@@ -20,6 +20,7 @@ final class StatusCommand extends OpsCommand
     private const SHOP_ROWS = [
         'http' => 'Erreichbar (HTTP)',
         'shopware' => 'Shopware',
+        'core_migrations_pending' => 'Core-Migrationen',
         'php' => 'PHP',
         'plugin' => 'ShopPlugin',
         'lock' => 'composer.lock',
@@ -104,6 +105,13 @@ final class StatusCommand extends OpsCommand
         $table->render();
 
         $notes = [];
+        foreach ($envs as $envName => $values) {
+            $pending = $values['core_migrations_pending'] ?? '0';
+            if (ctype_digit($pending) && $pending !== '0') {
+                // Live 09.11.2026: composer u ohne Migrationen; ein Opcache-Reset in diesem Zustand bricht die Storefront
+                $notes[] = sprintf('<error>%s: %s Core-Migration(en) offen. Erst `database:migrate core --all`, dann Cache und Opcache (DEPLOYMENT.md, Schritt 7).</error>', $envName, $pending);
+            }
+        }
         if ($app === 'shop' && $git !== []) {
             $notes[] = sprintf('main -> stage: %s offen, stage -> release: %s offen, main -> release: %s offen%s', $git['main_not_on_stage'] ?? '?', $git['stage_not_on_release'] ?? '?', $git['main_not_on_release'] ?? '?', ($git['stage_only'] ?? '0') !== '0' ? sprintf(', %s nur auf stage', $git['stage_only']) : '');
         }
@@ -128,6 +136,13 @@ final class StatusCommand extends OpsCommand
                 $text = $code === '000' ? 'nicht erreichbar' : $code . (($v['title_ok'] ?? 'ja') === 'nein' ? ', ohne ESSY-Titel' : '');
 
                 return $ok ? '<info>' . $text . '</info>' : '<error>' . $text . '</error>';
+            case 'core_migrations_pending':
+                $pending = $v[$key] ?? '?';
+                if ($pending === '0') {
+                    return '<info>keine offen</info>';
+                }
+
+                return ctype_digit($pending) ? '<error>' . $pending . ' offen</error>' : '<comment>nicht lesbar</comment>';
             case 'checkout':
                 if (!isset($v['checkout_sha'])) {
                     return '';

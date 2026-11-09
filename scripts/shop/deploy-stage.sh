@@ -19,6 +19,18 @@ console() { sudo -u www-data "$PHP" "$ROOT/bin/console" "$@"; }
 if [ -t 1 ]; then C_STEP=$'\033[1;34m'; C_OK=$'\033[1;32m'; C_END=$'\033[0m'; else C_STEP=''; C_OK=''; C_END=''; fi
 step() { printf '\n%s==> %s%s\n' "$C_STEP" "$1" "$C_END"; }
 
+# Core-Migrationen nach einem Core-Update (composer install mit neuem Core), vor Cache-Kette und Opcache-Reset.
+# Idempotent; Post-Update-Ereignisse nur, wenn Migrationen liefen. Begründung: deploy-live.sh, migrate_core.
+migrate_core() {
+  local out
+  out=$(console database:migrate core --all 2>&1) || { printf '%s\n' "$out" >&2; printf '\nFEHLER: Core-Migrationen fehlgeschlagen.\n' >&2; exit 1; }
+  echo "  core: $(grep -Eo 'Migrated +[0-9]+ out of [0-9]+' <<<"$out" | tr -s ' ' | head -1 || true)"
+  if grep -Eq 'Migrated +[1-9][0-9]* out of' <<<"$out"; then
+    echo "  Core-Migrationen gelaufen: Post-Update-Ereignisse nachholen"
+    console system:update:finish --skip-migrations --skip-asset-build
+  fi
+}
+
 step "Git: $BRANCH in $CHECKOUT holen (inkl. Submodule)"
 cd "$CHECKOUT"
 git fetch origin
@@ -48,6 +60,7 @@ console plugin:refresh --quiet
 # Erst den Container neu bauen: plugin:update kompiliert das Theme, und das lief mit dem alten Container
 # (neue Konstruktor-Argumente in services.yaml) in "Too few arguments" (Live 04.11.2026, Code war da schon kopiert).
 console cache:clear
+migrate_core
 if [ -n "$NEW_VERSION" ] && [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
   echo "  neue ShopPlugin-Version: plugin:update Essmann"
   console plugin:update Essmann

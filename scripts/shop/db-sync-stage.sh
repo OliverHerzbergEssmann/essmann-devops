@@ -218,6 +218,8 @@ cd $STAGE_SHOPWARE
 sudo -u www-data php bin/console cache:clear
 sudo -u www-data php bin/console cache:pool:clear cache.object cache.http cache.tags || true
 sudo -u www-data php bin/console theme:compile --active-only
+# cache:clear erreicht den PHP-FPM-Opcache nicht; clear_cache.php trifft je Aufruf nur einen Worker, daher 30 Aufrufe
+for _ in $(seq 1 30); do curl -sk -o /dev/null "$STAGE_URL/clear_cache.php"; done
 
 echo "[15/15] Dumps aufraumen..."
 rm "$DUMP_FILE" "$CLEAN_FILE"

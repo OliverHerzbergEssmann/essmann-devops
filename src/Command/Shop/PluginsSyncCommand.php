@@ -60,6 +60,7 @@ HELP);
             // Fremd-Plugin-Ordner auf Stage gehören www-data; utime/chmod auf fremden Dateien scheitert sonst (Fund 03.08.2026).
             // Ohne Zeitstempel entscheidet die Prüfsumme, sonst gälte jede Datei bei jedem Lauf als geändert.
             $scriptEnv['RSYNC_FLAGS'] = '--no-perms --no-times --checksum';
+            $scriptEnv['URL'] = $env->url;
         }
 
         $io->title(sprintf('Fremd-Plugins und Composer Live -> %s%s', $target, $input->getOption('dry-run') ? ' (Trockenlauf)' : ''));

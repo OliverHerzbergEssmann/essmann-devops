@@ -46,7 +46,7 @@ echo "--- DB-Sync von Prod -> Stage ---"
 # frisch importierte Live-DB referenziert, es auf Stage aber noch nicht gibt. WebLabels/ShopPlugin/
 # EssmannFaq sind versioniert und bleiben bewusst auf main-Stand, nicht auf Live-Stand (analog zu
 # .ddev/commands/host/db-pull).
-echo "[1/15] Fremd-Plugin-Dateien von Prod spiegeln (nicht versioniert, sonst driften sie auseinander)..."
+echo "[1/16] Fremd-Plugin-Dateien von Prod spiegeln (nicht versioniert, sonst driften sie auseinander)..."
 # --no-perms --no-times: Fremd-Plugin-Ordner gehoeren www-data, db-sync laeuft aber als
 # herzberg ohne sudo -> Inhalte lassen sich schreiben, aber utime/chmod auf fremden Dateien
 # scheitert mit "Operation not permitted" und bricht das ganze Script per set -e ab (Fund
@@ -59,14 +59,14 @@ rsync -a --no-perms --no-times --delete \
   "$PROD_USER@$PROD_HOST:$PROD_SHOPWARE/custom/plugins/" \
   "$STAGE_SHOPWARE/custom/plugins/"
 
-echo "[2/15] Stage Credentials laden..."
+echo "[2/16] Stage Credentials laden..."
 STAGE_DB_URL=$(grep DATABASE_URL $STAGE_SHOPWARE/.env.local | cut -d'=' -f2- | tr -d '"')
 STAGE_DB_USER=$(echo "$STAGE_DB_URL" | sed 's|mysql://||' | cut -d':' -f1)
 STAGE_DB_PASS=$(echo "$STAGE_DB_URL" | sed 's|mysql://[^:]*:||' | cut -d'@' -f1)
 STAGE_DB_HOST=$(echo "$STAGE_DB_URL" | cut -d'@' -f2 | cut -d':' -f1)
 STAGE_DB_NAME=$(echo "$STAGE_DB_URL" | cut -d'/' -f4 | cut -d'?' -f1)
 
-echo "[3/15] Dump von Prod ziehen (komprimiert)..."
+echo "[3/16] Dump von Prod ziehen (komprimiert)..."
 ssh "$PROD_USER@$PROD_HOST" bash << 'ENDSSH' | gzip -d > "$DUMP_FILE"
 DB_URL=$(grep DATABASE_URL /var/www/clients/client80/web225/web/.env.local | cut -d'=' -f2- | tr -d '"')
 DB_USER=$(echo "$DB_URL" | sed 's|mysql://||' | cut -d':' -f1)
@@ -83,22 +83,22 @@ mysqldump --defaults-file=/tmp/.my_sync.cnf \
 rm /tmp/.my_sync.cnf
 ENDSSH
 
-echo "[3/15] Dump-Groesse: $(du -sh $DUMP_FILE | cut -f1)"
+echo "[3/16] Dump-Groesse: $(du -sh $DUMP_FILE | cut -f1)"
 
-echo "[4/15] Dump bereinigen..."
+echo "[4/16] Dump bereinigen..."
 sed \
   -e 's/^ALTER DATABASE.*//' \
   -e 's/\/\*!50017 DEFINER=`[^`]*`@`[^`]*`\*\/ //' \
   "$DUMP_FILE" > "$CLEAN_FILE"
 
-echo "[5/15] Stage DB leeren und importieren..."
+echo "[5/16] Stage DB leeren und importieren..."
 mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" \
   -e "DROP DATABASE IF EXISTS $STAGE_DB_NAME; CREATE DATABASE $STAGE_DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
 mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" \
   "$STAGE_DB_NAME" < "$CLEAN_FILE"
 
-echo "[6/15] URLs anpassen..."
+echo "[6/16] URLs anpassen..."
 mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" << SQLEOF
 UPDATE sales_channel_domain SET url = REPLACE(url, '$PROD_URL', '$STAGE_URL');
 UPDATE system_config SET configuration_value = REPLACE(configuration_value, '$PROD_URL', '$STAGE_URL')
@@ -107,26 +107,26 @@ UPDATE seo_url SET is_modified = 0;
 SQLEOF
 
 if [ "$WITH_LIVE_PAYMENT_METHODS" -eq 0 ]; then
-  echo "[7/15] PayPal/Mollie/Amazon Pay deaktivieren (verhindert eine versehentliche echte Zahlung - mit --with-live-payment-methods aktiv lassen)..."
+  echo "[7/16] PayPal/Mollie/Amazon Pay deaktivieren (verhindert eine versehentliche echte Zahlung - mit --with-live-payment-methods aktiv lassen)..."
   mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" \
     -e "UPDATE payment_method SET active = 0 WHERE handler_identifier LIKE '%PayPal%' OR handler_identifier LIKE '%Mollie%' OR handler_identifier LIKE '%Amazon%';"
 else
-  echo "[7/15] PayPal/Mollie/Amazon Pay bleiben aktiv (--with-live-payment-methods) - vermutlich ohne Sandbox, siehe DEPLOYMENT.md..."
+  echo "[7/16] PayPal/Mollie/Amazon Pay bleiben aktiv (--with-live-payment-methods) - vermutlich ohne Sandbox, siehe DEPLOYMENT.md..."
 fi
 
-echo "[8/15] Migrationen ausfuehren..."
+echo "[8/16] Migrationen ausfuehren..."
 cd $STAGE_SHOPWARE
 sudo -u www-data php bin/console database:migrate core --all --quiet
 sudo -u www-data php bin/console database:migrate Essmann --all --quiet
 
 # Schutz zuerst: Captcha, Mailer, Tracking und Admin-Login laufen vor dem Loeschen, damit ein Abbruch dort
 # nie den Live-SMTP stehen laesst.
-echo "[9/15] reCAPTCHA deaktivieren..."
+echo "[9/16] reCAPTCHA deaktivieren..."
 CAPTCHA_JSON='{"_value":{"honeypot":{"name":"Honeypot","isActive":true},"basicCaptcha":{"name":"basicCaptcha","isActive":false},"googleReCaptchaV2":{"name":"googleReCaptchaV2","isActive":false,"config":{"siteKey":"","secretKey":"","invisible":false}},"googleReCaptchaV3":{"name":"googleReCaptchaV3","isActive":false,"config":{"siteKey":"","secretKey":"","thresholdScore":0.5}},"friendlyCaptcha":{"name":"friendlyCaptcha","isActive":false,"config":{"siteKey":"","secretKey":""}}}}'
 mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" \
   -e "UPDATE system_config SET configuration_value = '$CAPTCHA_JSON' WHERE configuration_key = 'core.basicInformation.activeCaptchasV2';"
 
-echo "[10/15] Mailer auf lokales Mailpit umbiegen (sonst gehen Test-Mails ueber den echten Live-SMTP raus)..."
+echo "[10/16] Mailer auf lokales Mailpit umbiegen (sonst gehen Test-Mails ueber den echten Live-SMTP raus)..."
 cd $STAGE_SHOPWARE
 # Shopware liest die Einzelschluessel (core.mailerSettings.host usw.); ein JSON-Objekt unter
 # core.mailerSettings legt nur einen weiteren Schluessel an und laesst den Live-SMTP samt Passwort stehen.
@@ -138,10 +138,10 @@ sudo -u www-data php bin/console system:config:set core.mailerSettings.password 
 sudo -u www-data php bin/console system:config:set core.mailerSettings.encryption '' --quiet
 sudo -u www-data php bin/console system:config:set core.mailerSettings.disableDelivery false --json --quiet
 
-echo "[11/15] Tracking-Tools deaktivieren (Google Analytics/Ads/Tag Manager)..."
+echo "[11/16] Tracking-Tools deaktivieren (Google Analytics/Ads/Tag Manager)..."
 sudo -u www-data php bin/console plugin:deactivate DIScoGA4 --quiet || true
 
-echo "[12/15] Admin-Login anlegen (admin/shopware) falls noch nicht vorhanden..."
+echo "[12/16] Admin-Login anlegen (admin/shopware) falls noch nicht vorhanden..."
 if ! mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" -se "SELECT 1 FROM user WHERE username = 'admin'" | grep -q 1; then
   sudo -u www-data php bin/console user:create admin --password=shopware --admin --no-interaction --quiet
   mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" \
@@ -149,7 +149,7 @@ if ! mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB
 fi
 
 if [ "$WITH_CUSTOMER_DATA" -eq 0 ]; then
-  echo "[13/15] Kundendaten entfernen (Anfragen, Bestellungen, Kunden, Newsletter-Abonnenten, Gast-Bewertungen, Mail-Archiv – mit --with-customer-data z.B. fuer Support-Faelle uebernehmen)..."
+  echo "[13/16] Kundendaten entfernen (Anfragen, Bestellungen, Kunden, Newsletter-Abonnenten, Gast-Bewertungen, Mail-Archiv – mit --with-customer-data z.B. fuer Support-Faelle uebernehmen)..."
   # Alles in einer Transaktion: mysql bricht beim ersten Fehler ab, dann wird zurueckgerollt und es bleibt nichts halb geloescht
   mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" << 'SQLEOF'
 START TRANSACTION;
@@ -206,10 +206,18 @@ UPDATE wl_search_log SET customer_id = NULL WHERE customer_id IS NOT NULL;
 COMMIT;
 SQLEOF
 else
-  echo "[13/15] Kundendaten bleiben erhalten (--with-customer-data)..."
+  echo "[13/16] Kundendaten bleiben erhalten (--with-customer-data)..."
 fi
 
-echo "[14/15] Cache leeren (inkl. Redis-backed Pools), Theme kompilieren, Opcache leeren..."
+echo "[14/16] Elasticsearch-Index neu aufbauen..."
+# Ohne diesen Schritt liest die Storefront nach dem Sync weiter den alten Index: Listing-Filter
+# fehlen oder zeigen alte Werte, obwohl die DB stimmt (Fund 11.11.2026: Filter "Kalibrierung"
+# fehlte auf Stage, DB identisch mit ddev). db-pull-ddev.sh macht das schon. --no-queue indexiert
+# synchron und setzt am Ende den Alias; die Queue ist in Schritt 13 ohnehin geleert worden.
+cd $STAGE_SHOPWARE
+sudo -u www-data php bin/console es:index --no-queue --no-progress
+
+echo "[15/16] Cache leeren (inkl. Redis-backed Pools), Theme kompilieren, Opcache leeren..."
 # WICHTIG: theme:compile MUSS der letzte Schritt sein. Es legt einen Seed im
 # Redis-Cache ab, aus dem der Storefront-Request den Theme-Pfad-Hash berechnet.
 # Ein cache:clear DANACH loescht den Seed -> die Seite fordert einen nie
@@ -221,7 +229,7 @@ sudo -u www-data php bin/console theme:compile --active-only
 # cache:clear erreicht den PHP-FPM-Opcache nicht; clear_cache.php trifft je Aufruf nur einen Worker, daher 30 Aufrufe
 for _ in $(seq 1 30); do curl -sk -o /dev/null "$STAGE_URL/clear_cache.php"; done
 
-echo "[15/15] Dumps aufraumen..."
+echo "[16/16] Dumps aufraumen..."
 rm "$DUMP_FILE" "$CLEAN_FILE"
 
 echo ""

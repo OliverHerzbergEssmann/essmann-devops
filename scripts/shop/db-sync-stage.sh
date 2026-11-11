@@ -138,8 +138,11 @@ sudo -u www-data php bin/console system:config:set core.mailerSettings.password 
 sudo -u www-data php bin/console system:config:set core.mailerSettings.encryption '' --quiet
 sudo -u www-data php bin/console system:config:set core.mailerSettings.disableDelivery false --json --quiet
 
-echo "[11/16] Tracking-Tools deaktivieren (Google Analytics/Ads/Tag Manager)..."
+echo "[11/16] Tracking-Tools und DooFinder-App deaktivieren (Google Analytics/Ads/Tag Manager; DooFinder nur auf Live)..."
 sudo -u www-data php bin/console plugin:deactivate DIScoGA4 --quiet || true
+# Stage hat die Live-Registrierung der App: aktiv schickt sie Webhooks (product.written, sales_channel.written) an DooFinder
+# und zeigt den Such-Layer des Live-Accounts. Der ShopPlugin-Schutz (LiveEnvironment) sperrt das zusaetzlich im Code.
+sudo -u www-data php bin/console app:deactivate DooFinder --quiet || true
 
 echo "[12/16] Admin-Login anlegen (admin/shopware) falls noch nicht vorhanden..."
 if ! mysql -h "$STAGE_DB_HOST" -u "$STAGE_DB_USER" -p"$STAGE_DB_PASS" "$STAGE_DB_NAME" -se "SELECT 1 FROM user WHERE username = 'admin'" | grep -q 1; then

@@ -67,6 +67,11 @@ if [ -n "$NEW_VERSION" ] && [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
 fi
 console database:migrate --all Essmann
 console database:migrate --all WebLabels
+# Neue Scheduled Tasks trägt Shopware nur bei plugin:update/-activate oder system:update:finish ein. Bei gleicher
+# ShopPlugin-Version und ohne Core-Migrationen passiert keins davon: Am 12.11.2026 fehlte nach dem Deploy der neue
+# Task essmann.kern_availability_sync. Ohne neue Tasks ändert der Aufruf nichts, hängende "queued"-Tasks setzt er
+# wieder auf "scheduled", von Hand deaktivierte bleiben aus.
+console scheduled-task:register
 
 step "Cache, Assets, Theme (Reihenfolge ist Absicht, siehe DEPLOYMENT.md)"
 console cache:clear

@@ -112,6 +112,8 @@ ein nicht leerer Wert in `.env.local` gewinnt dagegen immer. Shop: `.env.local` 
 Ein Eintrag je Änderung, neueste oben: Datum, was, warum. Längere Begründungen in den Abschnitten oben, hier nur der Verweis.
 Das Forum (Bereich `gedaechtnis`, Thread „[essmann-devops] ops-Konsole: Entscheidungen und Stand“) führt den Stand sitzungsübergreifend.
 
+- **12.11.2026:** `deploy-stage.sh`: nach den Plugin-Migrationen immer `scheduled-task:register`. Anlass: Shopware trägt neue Scheduled Tasks nur bei `plugin:update`/-activate oder `system:update:finish` ein; bei gleicher ShopPlugin-Version fehlte nach dem Stage-Deploy der neue Task `essmann.kern_availability_sync`. Ohne neue Tasks ein No-op, hängende „queued“-Tasks gehen zurück auf „scheduled“, von Hand deaktivierte bleiben aus. Live unverändert (dort registriert `plugin:update` beim Versionssprung). Auf Wunsch des Users. Geprüft per `bash -n` und Einzelaufruf als www-data auf Stage (48 Tasks, nichts verändert); ein voller Deploy-Lauf damit steht noch aus.
+
 - **02.11.2026:** `db-pull-ddev.sh` deaktiviert jetzt PayPal, Mollie und Amazon Pay wie `db-sync-stage.sh` (ohne Ausnahme-Schalter). Anlass: der Sync am 02.11. brachte auf ddev 14 aktive Zahlungsarten mit Live-Konten zurück, gewollt sind nur Vorkasse und Rechnung. Außerdem aus beiden Skripten die toten Sendinblue-Tracking-Zeilen entfernt (Plugin seit 30.10. überall deinstalliert).
 
 - **11.11.2026:** `db-sync-stage.sh` deaktiviert jetzt wie `db-pull-ddev.sh` die DooFinder-App (Schritt 11). Anlass: auf Stage war die App aktiv und schickte mit der Live-Registrierung Webhooks an DooFinder (25 in 7 Tagen, `sales_channel.written` mit 200). Im Shop sperrt zusätzlich `LiveEnvironment` im ShopPlugin jede DooFinder-Verbindung außerhalb von Live

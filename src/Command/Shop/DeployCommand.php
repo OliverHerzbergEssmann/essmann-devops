@@ -29,7 +29,7 @@ final class DeployCommand extends OpsCommand
             ->addOption('with-category-content', null, InputOption::VALUE_NONE, 'Nur live: Kategorie-Inhalte und FAQ neu importieren (DEPLOYMENT.md Schritt 9)')
             ->setHelp(<<<'HELP'
 stage: merged main nach stage, pusht, und führt auf dem Stage-Server den Deploy aus (Plugins per rsync
-       inkl. EssmannFaq-Submodule, composer install, Migrationen, Cache-Kette, Opcache). Keine e2e-Tests.
+       inkl. EssmannFaq-Submodule, composer install, Migrationen, Scheduled Tasks, Cache-Kette, Opcache). Keine e2e-Tests.
 live:  zeigt, welche Commits live gehen (origin/release..origin/stage), prüft die ShopPlugin-Version gegen den
        CHANGELOG, fragt nach, setzt release auf stage und pusht (der pre-push-Hook fragt noch einmal mit "yes"),
        zieht das Live-DB-Backup und führt auf Live den Ablauf aus DEPLOYMENT.md aus, mit Plugin-Backup,

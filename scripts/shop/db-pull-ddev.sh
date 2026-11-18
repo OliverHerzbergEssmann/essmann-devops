@@ -252,6 +252,18 @@ DELETE FROM essmann_quote_request_item;
 DELETE FROM essmann_quote_request;
 DELETE FROM essmann_bestprice_request;
 
+-- Kontaktanfragen (Einsendungen des Kontaktformulars für ESSY, Entity seit 18.11.2026). Die Tabelle legt erst die
+-- Migration des ShopPlugins an: fehlt sie (Live-Dump und Code-Stand noch ohne sie), gibt es nichts zu löschen, und der
+-- Block darf daran nicht scheitern. Sobald die Tabelle auf Live liegt, reicht ein schlichtes DELETE.
+SET @contact_request_delete = IF(
+    (SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'essmann_contact_request') > 0,
+    'DELETE FROM essmann_contact_request',
+    'DO 0'
+);
+PREPARE contact_request_delete FROM @contact_request_delete;
+EXECUTE contact_request_delete;
+DEALLOCATE PREPARE contact_request_delete;
+
 DELETE FROM newsletter_recipient;
 
 -- Gast-Bewertungen (kein customer_id) tragen ihre PII direkt in der Zeile (external_user/external_email);

@@ -36,12 +36,13 @@ src/Shell/Markers.php          Marker lesen und parsen
 src/Status/Collector.php       sammelt Probe, HTTP-Prüfung und Git-Abstände je Umgebung
 src/Command/OpsCommand.php     Basis: Runner, scriptEnv() (ROOT, PHP, BRANCH, URL, MARKER_DIR, CHECKOUT, GIT_SSH_COMMAND)
 src/Command/StatusCommand.php  ops status
-src/Command/Shop/              DbSyncCommand, PluginsSyncCommand, DeployCommand (stage und live), CleanupCommand
+src/Command/Shop/              DbSyncCommand, PluginsSyncCommand, ComposerPushCommand, DeployCommand (stage und live), CleanupCommand
 src/Command/Essy/              DeployCommand
 scripts/shop/probe.sh          liest Zustand (key=value), ändert nichts
 scripts/shop/db-sync-stage.sh  läuft auf Stage; Inhalt = das frühere db-sync.sh des Shop-Repos
 scripts/shop/db-pull-ddev.sh   läuft auf dem Mac; Inhalt = das frühere .ddev/commands/host/db-pull
 scripts/shop/plugins-sync.sh   läuft auf dem Ziel: rsync der Fremd-Plugins, composer.json/lock von Live, composer install, Cache-Kette, Opcache (Stage)
+scripts/shop/composer-push.sh  läuft auf dem Ziel (Stage, Live): composer.json/lock aus dem Shop-Repo, composer install, Core-Migrationen, Cache-Kette, Opcache, Smoke-Test
 scripts/shop/deploy-stage.sh   läuft auf Stage: git pull + submodule, rsync der drei eigenen Plugins, composer, Migrationen, Cache-Kette, Opcache
 scripts/shop/deploy-live.sh    läuft auf Live: Ablauf aus DEPLOYMENT.md mit Plugin-Tarball, Cache-Kette, Opcache-Schleife, Smoke-Test
 scripts/shop/cleanup.sh        läuft auf dem Ziel: löscht Logs (var/log), Exporte und alten Google-Feed (files/export) älter als DAYS Tage, dann import-export:delete-expired
@@ -84,6 +85,7 @@ kommen teils per Composer (B2B, webla_zusatzoptionen, Frosh), teils als Ordner u
 
 ## Entscheidungen
 
+- **18.11.2026, Olli:** Core-Updates laufen in der Reihenfolge ddev, Stage, Live (Auftrag: „Update auf 6.6.10.32 auf ddev und Stage durchführen und für Live vorbereiten“). Dafür gibt es `shop:composer:push`, das den `composer.lock` aus dem Shop-Repo einspielt. Die Entscheidung vom 19.10. bleibt für alles, was direkt auf Live aktualisiert wird (Plugins): das holt weiter `shop:plugins:sync` von Live. Annahme, von Olli noch nicht bestätigt: Das gilt ab jetzt für jedes Core-Update, nicht nur für dieses.
 - **02.11.2026, Olli (mehrfach gesagt):** Auf ddev und Stage gibt es immer nur Vorkasse und Rechnung. PayPal, Mollie und Amazon Pay sind Live-Konten mit echten Zahlungen und bleiben beim Testen aus. Beide DB-Skripte deaktivieren sie nach jedem Sync; nur Stage hat die Ausnahme `--with-live-payment-methods`, ddev hat keine.
 - **19.10.2026, Olli:** Eigenes Repo mit Symfony-Console-App statt Commands im ShopPlugin (der Branch `feature/dev-ops` vom 20.07.2026 im Shop-Repo hatte das; Ideen übernommen, Code nicht) und statt Makefile.
 - **19.10.2026, Olli:** Live ist die Composer-Wahrheit. `shop:plugins:sync` holt `composer.json` und `composer.lock` von Live; bei ddev landen sie im Shop-Repo und werden committed.
@@ -111,6 +113,8 @@ ein nicht leerer Wert in `.env.local` gewinnt dagegen immer. Shop: `.env.local` 
 
 Ein Eintrag je Änderung, neueste oben: Datum, was, warum. Längere Begründungen in den Abschnitten oben, hier nur der Verweis.
 Das Forum (Bereich `gedaechtnis`, Thread „[essmann-devops] ops-Konsole: Entscheidungen und Stand“) führt den Stand sitzungsübergreifend.
+
+- **18.11.2026 (zweiter Eintrag):** Neuer Befehl `ops shop:composer:push stage|live` mit `scripts/shop/composer-push.sh`: Composer-Stand aus dem Shop-Repo aufs Ziel (Gegenrichtung zu `shop:plugins:sync`), alter Stand nach `~/.essmann-ops/shop/composer-backup-<Zeit>/`, `composer install` (Dev-Pakete wie auf dem Ziel bisher, gelesen aus `vendor/composer/installed.json`), dann die Kette aus `deploy-live.sh` (Core-Migrationen vor Cache und Opcache) und ein Smoke-Test; Marker `last-composer`. live verlangt einen committeten Stand und denselben `composer.lock` auf Stage, zeigt erst den Trockenlauf, fragt nach und zieht das Live-DB-Backup. Anlass: Update auf Shopware 6.6.10.32 (Sicherheits-Release vom 18.11.), das erst auf ddev und Stage geprüft werden sollte. Geprüft: Trockenlauf gegen Stage und Live (je genau die vier Shopware-Pakete), echter Lauf auf Stage (6.6.10.32, 0 Core-Migrationen, Smoke-Test ohne Befund, keine Skript-Reste in /tmp). Auf Live noch nicht echt gelaufen; der Fall „Core-Migrationen offen“ und der Rückweg bei scheiterndem `composer install` sind ungetestet. Falle dabei: ddev hat Composer 2.11.1 und schreibt einen anderen `content-hash` in den Lock als Stage (2.9.8, dort mit `composer validate` geprüft) und Live. Nach `ddev composer update` den `content-hash` auf den alten Wert zurücksetzen, solange sich `composer.json` nicht geändert hat, sonst warnen Stage und Live bei jedem Install („lock file is not up to date“); die Warnung bleibt dann wie bisher nur auf ddev.
 
 - **18.11.2026:** `db-pull-ddev.sh` und `db-sync-stage.sh`: die Löschroutine leert jetzt auch `essmann_contact_request` (Einsendungen des Kontaktformulars, die der Shop für ESSY speichert; ShopPlugin `Migration1793400000CreateEssmannContactRequest`, Branch `feature/contact-request-storage`). Anders als die übrigen Zeilen ist diese bedingt (`information_schema`, `PREPARE`): solange die Tabelle noch nicht auf Live liegt, fehlt sie in einem Ziel ohne die Migration, und ein schlichtes `DELETE` ließe die ganze Transaktion scheitern (siehe „Fallen“, 27.10.). Liegt die Tabelle auf Live, kann die Zeile ein schlichtes `DELETE` werden. Geprüft per `bash -n` und auf ddev mit dem Baustein in einer zurückgerollten Transaktion (Tabelle fehlt: `DO 0`; Tabelle da: 2 Zeilen weg, nach `ROLLBACK` wieder 2); ein voller Sync-Lauf damit steht noch aus.
 
